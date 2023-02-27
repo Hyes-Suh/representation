@@ -1,0 +1,718 @@
+---
+title: "Politische Repräsentation_Wählerschaft"
+author: "Hyeseung Suh"
+date: "2022-08-08"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+### ===========================================
+### (GLES) Wählerschaft BTW 2017: Daten säubern
+### ===========================================
+
+```{r setup, warning=FALSE, message=FALSE}
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(misty)
+library(expss)
+library(tidyr)
+setwd("/Users/suhhyeseung/Documents/Research/Intersek")
+dat <- read_dta("ZA6801_de_v4-0-1.dta") # Nachwahlquerschnitt 2017
+```
+
+## 1. Geschlecht
+```{r Geschlecht}
+dat <- dat %>% 
+  mutate(geschlecht = factor(case_when(q1 == 1 ~ "männlich",
+                                       q1 == 2 ~ "weiblich")))
+# table(dat$geschlecht, useNA = "always")
+```
+
+
+## 2. Migrationshintergrund 
+q171: Haben Sie die deutsche Staatsbürgerschaft von Geburt an? - 1 ja 2 nein
+q172: Geburtsland // Bitte geben Sie an, wo Sie geboren wurden. - 1 Deutschland 2 Ausland
+q178: Geburtsland Eltern // Wurden Ihre Eltern im Gebiet des heutigen Deutschlands geboren? - 1 Deutschland (Beide Eltern in D geboren) / 2 3 4 Ausland (mindestens ein Elternteil im Ausland geboren)
+q183: Geburtsland Großeltern // Wurden alle Ihre Großeltern im Gebiet des heutigen Deutschlands geboren? 1 Deutschland 2 Ausland
+q186: Im HH gesprochene Sprache, deutsch // Sprechen Sie in Ihrem Haushalt überwiegend deutsch oder eine andere Sprache? - 1 Deutsch 2 eine andere Sprache
+q188: Sind Sie, Ihre Mutter oder Ihr Vater als Aussiedler/in oder Spätaussiedler/in nach Deutschland gekommen? - 1 Ja 2 Nein (2 als Deutsche, 1 als Ausländer kodieren)
+
+```{r Migrationshintergrund}
+## Variablen als Faktor kodeiren
+dat$staatsb <- as.factor(dat$q171)
+dat$geburts1 <- as.factor(dat$q172)
+dat$geburts2 <- as.factor(dat$q178)
+dat$geburts3 <- as.factor(dat$q183)
+dat$sprache <- as.factor(dat$q186)
+dat$aussiedler <- as.factor(dat$q188)
+
+## alle Kritikpunkte integriert
+dat$mhg <- ifelse((dat$staatsb == 2) | (dat$geburts1 == 2) | 
+                      (dat$geburts2 == 2 & dat$geburts2 == 3 & dat$geburts2 == 4) | 
+                      (dat$geburts3 == 2) | (dat$sprache == 2), "ja",
+                    ifelse((dat$staatsb == 1) | (dat$geburts1 == 1) | 
+                             (dat$geburts2 == 1) | (dat$geburts3 == 1) | 
+                             (dat$sprache == 1), "nein", NA))
+# table(dat$mhg, useNA = "always")
+```
+
+
+## 3. Sozioökonomische Status (SES)
+Lampert et al. (2013). "Messung des sozioökonomischen  Status in der Studie zur  Gesundheit Erwachsener in  Deutschland (DEGS1)"
+
+3.1 Nettoäquivalenzeinkommen (mit den Variablen q192 Haushaltsnettoeinkommen und q2c Alter befragter Person sowie q132a ~ q132g Alter Haushaltspersonen)
+  q2c: Geburtsjahr der befragten Person // 
+  q132a ~ q132e: Das Alter der weiteren im Haushalt lebenden Personen
+  
+  (Vgl. Lampert et al. (2013))
+  Haupteinkommensbesitzer: 1.0 / Hausmitglieder >= 14: 0.5 / Unter 14: 0.3
+  Die Befragten Personen sind alle älter als 14 
+    -> Im Nenner des Formels kann fixiert ein 1.0 addiert werden. 
+```{r SES nach Lampert et al. 2013 - Nettoäquivalenzeinkommen}
+## 1) Alter der befragten Personen kodieren und eine neue Variable erzeugen (2022 - Geburtsjahr)
+# str(dat$q2c)
+dat$geburtsjahr <- as.numeric(dat$q2c)
+
+dat <- dat %>% 
+  mutate(alter = 2022 - geburtsjahr)
+
+# table(dat$alter, useNA = "always")
+
+## 2) Wert < 0 als NA kodieren // Neue Variable "gewichtung" erzeugen und den NAs 0 Punkte vergeben
+# table(dat$q132a, useNA = "always")
+
+dat$q132a <- replace(dat$q132a, dat$q132a < 0, NA)
+# table(dat$q132a, useNA = "always") # missings als NAs kodiert
+
+dat$q132b <- replace(dat$q132b, dat$q132b < 0, NA)
+dat$q132c <- replace(dat$q132c, dat$q132c < 0, NA)
+dat$q132d <- replace(dat$q132d, dat$q132d < 0, NA)
+dat$q132e <- replace(dat$q132e, dat$q132e < 0, NA)
+dat$q132f <- replace(dat$q132f, dat$q132f < 0, NA)
+dat$q132g <- replace(dat$q132g, dat$q132g < 0, NA)
+
+## 3) Wenn Alter der Haushaltspersonen >= 14, als 0.5 // wenn 0 <= Alter der HP < 14, als 0.3 kodieren
+
+dat$gewichtung1 <- 
+  case_when(
+  dat$q132a >= 0 & dat$q132a < 14 ~ 0.3,
+  dat$q132a >= 14 ~ 0.5)
+
+# table(dat$gewichtung1, useNA = "always")
+dat$gewichtung1 <- replace(dat$gewichtung1, is.na(dat$gewichtung1), 0)
+
+dat$gewichtung2 <- 
+  case_when(
+  dat$q132b >= 0 & dat$q132b < 14 ~ 0.3,
+  dat$q132b >= 14 ~ 0.5)
+dat$gewichtung2 <- replace(dat$gewichtung2, is.na(dat$gewichtung2), 0)
+
+dat$gewichtung3 <- 
+  case_when(
+  dat$q132c >= 0 & dat$q132c < 14 ~ 0.3,
+  dat$q132c >= 14 ~ 0.5)
+dat$gewichtung3 <- replace(dat$gewichtung3, is.na(dat$gewichtung3), 0)
+
+dat$gewichtung4 <- 
+  case_when(
+  dat$q132d >= 0 & dat$q132d < 14 ~ 0.3,
+  dat$q132d >= 14 ~ 0.5)
+dat$gewichtung4 <- replace(dat$gewichtung4, is.na(dat$gewichtung4), 0)
+
+dat$gewichtung5 <- 
+  case_when(
+  dat$q132e >= 0 & dat$q132e < 14 ~ 0.3,
+  dat$q132e >= 14 ~ 0.5)
+dat$gewichtung5 <- replace(dat$gewichtung5, is.na(dat$gewichtung5), 0)
+# table(dat$gewichtung5)
+
+dat$gewichtung6 <- 
+  case_when(
+  dat$q132f >= 0 & dat$q132f < 14 ~ 0.3,
+  dat$q132f >= 14 ~ 0.5)
+dat$gewichtung6 <- replace(dat$gewichtung6, is.na(dat$gewichtung6), 0)
+# table(dat$gewichtung6)
+
+dat$gewichtung7 <- 
+  case_when(
+  dat$q132g >= 0 & dat$q132g < 14 ~ 0.3,
+  dat$q132g >= 14 ~ 0.5)
+dat$gewichtung7 <- replace(dat$gewichtung7, is.na(dat$gewichtung7), 0)
+# table(dat$gewichtung7)
+
+## 4) Nettoäquivalenzeinkommen = Haushaltseinkommen (q192) / (1.0 + gewichtung1 + gewichtung2 + gewichtung3 + gewichtung4 + gewichtung5 + gewichtung6 + gewichtung7)
+
+dat$q192 <- replace(dat$q192, dat$q192 < 0, NA)
+
+# Mittelwert jeder Kategorie als Netteinkommen umkodieren -> Nettoäquivalenzeinkomen
+table(dat$q192)
+
+dat <- dat %>% group_by(q192, gewichtung1, gewichtung2, gewichtung3, 
+                        gewichtung4, gewichtung5, gewichtung6, gewichtung7) %>% 
+  filter(!is.na(q192)) %>%
+  mutate(meanNet = case_when(q192 == 1 ~ 500,
+                             q192 == 2 ~ 625, 
+                             q192 == 3 ~ 875, 
+                             q192 == 4 ~ 1125, 
+                             q192 == 5 ~ 1375, 
+                             q192 == 6 ~ 1750, 
+                             q192 == 7 ~ 2250, 
+                             q192 == 8 ~ 2750, 
+                             q192 == 9 ~ 3500, 
+                             q192 == 10 ~ 4500, 
+                             q192 == 11 ~ 6250, 
+                             q192 == 12 ~ 8750, 
+                             q192 == 13 ~ 12000))
+
+# table(dat$meanNet, useNA = "always")
+
+# Nettoäquivalenzeinkommen berechnen
+dat <- dat %>%
+  mutate(NetÄqui = meanNet / (1.0 + gewichtung1 + gewichtung2 + gewichtung3 + 
+                                gewichtung4 + gewichtung5 + gewichtung6 + gewichtung7)) %>% 
+  filter(!is.na(NetÄqui))
+
+# dat$NetÄqui 
+dat$NetÄqui <- floor(dat$NetÄqui)
+
+## 5) Punkte nach Lampert et al. (2013) vergeben
+dat <- dat %>% 
+  mutate(NetÄqui_P = case_when(NetÄqui <= 491 ~ 1.0, 
+                               NetÄqui > 492 & NetÄqui <= 683 ~ 1.5, 
+                               NetÄqui > 683 & NetÄqui <= 815 ~ 2.0, 
+                               NetÄqui > 815 & NetÄqui <= 921 ~ 2.5, 
+                               NetÄqui > 921 & NetÄqui <= 1082 ~ 3.0, 
+                               NetÄqui > 1082 & NetÄqui <= 1188 ~ 3.5, 
+                               NetÄqui > 1188 & NetÄqui <= 1310 ~ 4.0, 
+                               NetÄqui > 1310 & NetÄqui <= 1417 ~ 4.5, 
+                               NetÄqui > 1417 & NetÄqui <= 1619 ~ 5.0,
+                               NetÄqui > 1619 & NetÄqui <= 1833 ~ 5.5, 
+                               NetÄqui > 1833 & NetÄqui <= 2125 ~ 6.0, 
+                               NetÄqui > 2125 & NetÄqui <= 2692 ~ 6.5, 
+                               NetÄqui > 2692 ~ 7.0
+                               ))
+# table(dat$NetÄqui_P)
+dat$NetÄqui_P[is.na(dat$NetÄqui_P)] <- 0
+```
+
+3.2 Schulische und berufliche Qualifikation (q135 Schulabschluss // q136a-p berufl. Bildung)
+```{r SES nach Lampert et al. 2013 - Bildung}
+#####
+## 1) Schulischer Abschluss (q135)
+
+dat$q135 <- replace(dat$q135, dat$q135 < 0, NA) 
+dat$q135 <- replace(dat$q135, dat$q135 == 9, NA) 
+table(dat$q135, useNA = "always")
+# 1 beendet oder ohne Abschluss 2 AbschlussHaupt 3 AbschlussReal 4 FH-Reife 5 Abi 6 Sonstige
+
+## 2) Berufliche Bildung (q136a-p)
+
+# NAs generieren
+
+dat$q136a <- replace(dat$q136a, dat$q136a < 0, NA) 
+table(dat$q136a, useNA = "always")
+dat$q136b <- replace(dat$q136b, dat$q136b < 0, NA) 
+dat$q136c <- replace(dat$q136c, dat$q136c < 0, NA) 
+dat$q136d <- replace(dat$q136d, dat$q136d < 0, NA) 
+dat$q136e <- replace(dat$q136e, dat$q136e < 0, NA) 
+dat$q136f <- replace(dat$q136f, dat$q136f < 0, NA) 
+dat$q136g <- replace(dat$q136g, dat$q136g < 0, NA) 
+dat$q136h <- replace(dat$q136h, dat$q136h < 0, NA) 
+dat$q136i <- replace(dat$q136i, dat$q136i < 0, NA) 
+dat$q136j <- replace(dat$q136j, dat$q136j < 0, NA) 
+dat$q136k <- replace(dat$q136k, dat$q136k < 0, NA) 
+dat$q136l <- replace(dat$q136l, dat$q136l < 0, NA) 
+dat$q136m <- replace(dat$q136m, dat$q136m < 0, NA) 
+dat$q136n <- replace(dat$q136n, dat$q136n < 0, NA) 
+dat$q136o <- replace(dat$q136o, dat$q136o < 0, NA) 
+dat$q136p <- replace(dat$q136p, dat$q136p < 0, NA) 
+
+# Umkodieren
+# q136a berufl. Anlernzeit // b Teilfacharbeiterabschluss // c gewerbl. oder landwirtschaftl. Lehre
+# d kaufmännl. Lehre // e berufl. Praktikum o. Volontariat // f Berufsfachschulabschluss 
+# g Fachakademie-/Berufsakademieabschluss // h Fachschulabschluss // i Meister/in, Technikerabschluss // # j Fachhochschulabschluss // k Hochschulabschluss Bachelor // l Hochschulabschluss: Master, Diplom, 
+# Magister, Staatsexamen // m Promotion // n anderen beruflichen Ausbildungsabschluss // 
+# o noch in beruflicher Ausbildung // p keine abgeschlossene Ausbildung
+
+# table(dat$q136a, useNA = "always")
+# class(dat$q136a)
+columns <-c("q136a", "q136b", "q136c", "q136d", "q136e", "q136f", "q136g", 
+            "q136h", "q136i", "q136j", "q136k", "q136l", "q136m", "q136n", "q136o", "q136p")
+dat[, columns] <- lapply(columns, function(x) as.numeric(dat[[x]]))
+
+dat <- dat %>% 
+  mutate(berufAb = case_when(q136a == 1 | q136o == 1 | q136j ~ 1, 
+              q136b == 1 | q136c == 1 | q136d == 1 | q136e == 1 | q136f | q136n == 1 | 
+                q136g == 1 | q136h | q136i == 1 ~ 2, 
+              q136j == 1 | q136k == 1 ~ 3, 
+              q136l == 1 | q136m == 1 ~ 4, 
+              TRUE ~ 5))
+# beruflAb: 1 kein beruflicher Abschluss 2 Ausbildung, Lehre, Fachschule 3 Bachelor, Diplom FH
+# 4 Master, Magister, Diplom, Promotion 5 Keine Kategorie
+# table(dat$berufAb)
+#####
+
+## 3) Schulische und berufliche Qualifikationen nach Lampert et al. (2013) - Punkte vergeben
+
+dat <- dat %>% 
+  mutate(qualifikation = case_when(q135 == 1 & berufAb == 1 ~ 1.0, 
+                                   q135 == 2 & berufAb == 1 ~ 1.7,
+                                   q135 == 3 & berufAb == 1 ~ 2.8, 
+                                   (q135 == 1 | q135 == 2) & berufAb == 2 ~ 3.0, 
+                                   q135 == 3 & berufAb == 2 ~ 3.6, 
+                                   (q135 == 4 | q135 == 5) & berufAb == 1 ~ 3.7, 
+                                   (q135 == 4 | q135 == 5) & berufAb == 2 ~ 4.8, 
+                                   (q135 == 4 | q135 == 5 | q135 == 6) & berufAb == 5 ~ 5.4, 
+                                   (q135 == 4 | q135 == 5) & berufAb == 3 ~ 6.1, 
+                                   (q135 == 4 | q135 == 5) & berufAb == 4 ~ 7.0))
+# table(dat$qualifikation, useNA = "always")
+dat$qualifikation[is.na(dat$qualifikation)] <- 0 # NAs 0 Punkte vergeben
+```
+
+
+3.3 Beruf: aktuell (q139)
+```{r SES nach Lampert et al. 2013 - Beruf(aktuell)}
+# NAs kodieren
+dat$q139 <- replace(dat$q139, dat$q139 < 0, NA)
+dat$q139 <- replace(dat$q139, dat$q139 == 63, NA)
+# table(dat$q139, useNA = "always")
+
+dat <- dat %>% 
+  mutate(berufAktuell = case_when(q139 == 61 ~ 1.0, 
+                                  q139 == 11 ~ 1.5, 
+                                  q139 == 62 ~ 1.9, 
+                                  q139 == 13 ~ 2.0, 
+                                  q139 == 12 ~ 2.1, 
+                                  q139 == 21 | q139 == 22 ~ 2.4, 
+                                  q139 == 31 ~ 2.9,
+                                  q139 == 51 ~ 3.5, 
+                                  q139 == 23 ~ 3.6,
+                                  q139 == 52 ~ 4.0,
+                                  q139 == 32 ~ 4.1,
+                                  q139 == 24 | q139 == 53 ~ 4.2, 
+                                  q139 == 25 ~ 4.7, 
+                                  q139 == 33 ~ 5.2, 
+                                  q139 == 41 ~ 6.2, 
+                                  q139 == 34 ~ 6.4, 
+                                  q139 == 42 ~ 6.8, 
+                                  q139 == 43 ~ 7.0
+                                  ))
+# table(dat$berufAktuell, useNA = "always")
+dat$berufAktuell[is.na(dat$berufAktuell)] <- 0 # NAs 0 Punkte vergeben 
+
+# Landwirt (1,0) - 61
+# ungelernte & angelernte Arbeiter (1,5) - 11
+# Arbeiter ohne nähre Angaben (1,9) - 62
+# Vorarbeiter (2,0) - 13
+# Gelernte oder Facharbeiter (2,1) - 12
+# Meister, Polier (2,4) - 21
+# Angestellte mit ausführender Tätigkeit (2,4) - 22 
+# Beamte im einfachen Dienst (2,9) - 31
+# Selbstständige: keine Mitarbeiter (3,5) - 51
+# Angestellte mit qualifizierter T. (3,6) - 23
+# Selbstständige oder Freiberufler o. n. A. (4,0) - 52
+# Beamte im mittleren Dienst (4,1) - 32
+# Angestellte mit verantwortlicher Tätigkeit (4,2) - 24
+# Selbstständige: 5 oder mehr Mitarbeiter (4,2) - 53
+# Angestellte mit umfassender Führungstätigkeit (4,7) - 25
+# Beamte im gehobenen Dienst (5,2) -33
+# Akademiker im freien Beruf (6,2) - 41
+# Beamte im höheren Dienst (6,4) - 34
+# Freiberufler: 1 bis 4 Mitarbeiter (6,8) - 42
+# Freiberufler: 5 oder mehr Mitarbeiter (7,0) - 43
+```
+
+3.4 Ergebnis SES nach Lampert et al. (2013)
+```{r SES Endergebnis}
+## 1) Punkte der drei Variablen addieren + in die Variable ses speichern 
+dat <- dat %>% 
+  mutate(ses = NetÄqui_P + qualifikation + berufAktuell)
+# table(dat$ses)
+
+# Histogram_ses
+dat %>%
+  group_by(ses)%>%
+  filter(!is.na(ses)) %>%
+  ggplot(aes(x = ses))+
+  geom_histogram()+ 
+  xlab("SES") + 
+  ylab("Frequency") +
+  ggtitle("Distribution SES") + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(size=8, angle=90, vjust=0.5))
+
+## 2) Quintile berechnen, Levels vergeben und in eine neue Variable speichern (sesQuinLevel)
+# install.packages("gtools") **
+library(gtools)
+dat$sesQuin <- quantcut(dat$ses, q = 5, na.rm = TRUE)
+# table(dat$sesQuin) 
+levels(dat$sesQuin) # check levels
+levels(dat$sesQuin) <- c(1, 2, 3, 4, 5) # assign numbers for each level
+# table(dat$sesQuin) # check 
+dat$sesQuinLevel <- as.numeric(as.character(dat$sesQuin)) # change from factor to numeric
+# table(dat$sesQuinLevel)
+
+# 3) Nach Lampert et al.: anhand der Quintile drei neue Kategorien bilden und eine neue kategorische Variable erzeugen (sesStatus)
+dat <- dat %>% 
+  mutate(sesStatus = factor(case_when(sesQuinLevel == 1 ~ "Niedrig", 
+                                      sesQuinLevel == 2 | sesQuinLevel == 3 | 
+                                        sesQuinLevel == 4 ~ "Mittel", 
+                                      sesQuinLevel == 5 ~ "Hoch")))
+# table(dat$sesStatus)
+```
+
+
+### =============================================
+### (GLES) Wählerschaft BTW 2017: Positionsissues
+### =============================================
+
+## Positionsissue 1: Sozialstaatliche Leistungen
+q78: Eigene Position sozioökonomische Dimension
+(1) 1 weniger Steuern und Abgaben, auch wenn das weniger sozialstaatliche Leistungen bedeutet 
+(11) 11 mehr sozialstaatliche Leistungen, auch wenn das mehr Steuern und Abgaben bedeutet
+
+In ANOVA, we have a "response variable" (for example, height) measured on some subjects who are divided into groups. We want to know how the response variable differs from group to group and whether the groups are different from each other in terms of the average response. (Are people's average heights significantly different by eye color?)
+
+```{r Positionsissue 1}
+## 1) Daten säubern
+# intersektionale Kategorien bilden und Labels vergeben
+attach(dat)
+dat$kategorie[geschlecht == "weiblich" & 
+                          mhg == "ja" & sesStatus == "Niedrig"] <- "w/mhg/niedrig"
+dat$kategorie[geschlecht == "weiblich" & 
+                          mhg == "nein" & sesStatus == "Niedrig"] <- "w/o.mhg/niedrig"
+dat$kategorie[geschlecht == "weiblich" & 
+                          mhg == "ja" & sesStatus == "Mittel"] <- "w/mhg/mittel"
+dat$kategorie[geschlecht == "weiblich" & 
+                          mhg == "nein" & sesStatus == "Mittel"] <- "w/o.mhg/mittel"
+dat$kategorie[geschlecht == "weiblich" & 
+                          mhg == "ja" & sesStatus == "Hoch"] <- "w/mhg/hoch"
+dat$kategorie[geschlecht == "weiblich" & 
+                          mhg == "nein" & sesStatus == "Hoch"] <- "w/o.mhg/hoch"
+dat$kategorie[geschlecht == "männlich" & 
+                          mhg == "ja" & sesStatus == "Niedrig"] <- "m/mhg/niedrig"
+dat$kategorie[geschlecht == "männlich" & 
+                          mhg == "nein" & sesStatus == "Niedrig"] <- "m/o.mhg/niedrig"
+dat$kategorie[geschlecht == "männlich" & 
+                          mhg == "ja" & sesStatus == "Mittel"] <- "m/mhg/mittel"
+dat$kategorie[geschlecht == "männlich" & 
+                          mhg == "nein" & sesStatus == "Mittel"] <- "m/o.mhg/mittel"
+dat$kategorie[geschlecht == "männlich" & 
+                          mhg == "ja" & sesStatus == "Hoch"] <- "m/mhg/hoch"
+dat$kategorie[geschlecht == "männlich" & 
+                          mhg == "nein" & sesStatus == "Hoch"] <- "m/o.mhg/hoch"
+detach(dat)
+# table(dat$kategorie)
+dat$kategorie <- as.factor(dat$kategorie)
+
+# NAs generieren
+dat <- dat %>%
+  mutate(sozial = 
+           replace(q78, q78 < 0, NA))
+# als numerische kodieren 
+dat$sozial <- as.numeric(dat$sozial) 
+# table(dat$sozial, useNA = "always")
+
+## 2) Subset / Plot / ANOVA
+# a. neues Subset: geschlecht, mhg, sesStatus, sozial (Issue 1)
+subset_sozial <- subset(dat, select = c(geschlecht, mhg, sesStatus, sozial, kategorie)) %>%
+  filter(!is.na(sozial), 
+         !is.na(kategorie))
+head(subset_sozial) # check
+
+# b. grafische Darstellung: Verteilung nach Kategorien
+# density plot
+densityP_sozial <- subset_sozial %>% 
+  ggplot(aes(x = sozial, color = kategorie)) + 
+  geom_density(lwd = 0.6, linetype = 1, alpha = 0.5) + 
+  theme_bw() + 
+  scale_x_continuous(breaks = c(1,11), 
+                     labels = c("weniger sozial. Leistungen", 
+                              "mehr sozial. Leistungen")) + 
+  theme(axis.text.x = element_text(vjust=0.4), 
+        axis.title.x = element_blank(), 
+        legend.title = element_blank()) + 
+  labs(y = "Density", 
+       subtitle = "Gruppeninteresse - Sozialleistung")
+densityP_sozial # Abweichungen zwischen Gruppen
+  
+# boxplot 
+boxP_sozial <- subset_sozial %>% 
+  ggplot() + 
+  aes(x = reorder(kategorie, sozial), y = sozial, fill = kategorie) + 
+  geom_boxplot(alpha = 0.2) + 
+  theme_bw() + 
+  scale_y_continuous(breaks = c(1,11), 
+                     labels = c("Weniger",
+                                "Mehr")) + 
+  theme(axis.text.x = element_text(angle = 65, vjust = 0.6, size = 7),
+        axis.text.y = element_text(vjust = 0.6, size = 7),
+        axis.title.x = element_blank(), 
+        legend.title = element_blank(), 
+        legend.text = element_text(vjust = 0.6, size = 7)) + 
+  labs(y = "Sozialstaatliche Leistung", 
+       subtitle = "Gruppeninteresse - Sozialleistung")
+boxP_sozial
+
+# ANOVA: difference in means of the groups at each level of the independent variable?
+anova1 <- aov(sozial ~ kategorie, data = subset_sozial)
+summary(anova1) 
+# The p value of the kategorie variable is low (p < 0.01), so it appears that the type of categories used has a real impact on the issue position.
+
+#####
+## Verteilung von Interessen (Issue 1) von zwei gruppen
+# install.packages("sm")
+library(sm)
+attach(subset_sozial)
+#create value labels
+kategorie_zwei <- factor(kategorie, levels = c("w/mhg/niedrig", "m/o.mhg/hoch"), 
+                           labels = c("Frau/MHG/SES niedrig", 
+                                      "Mann/o.MHG/SES hoch"))
+# plot densities and compare
+sm.density.compare(sozial, kategorie_zwei, xlab = "Sozialleistung")
+title(main = "Verteilung Issue 1")
+# legend 
+colfill<-c(2:(2+length(levels(kategorie_zwei))))
+legend("right", inset = c(0.01, 5), fill = colfill, 
+       legend = c("Frau/MHG/SES niedrig",
+                  "Mann/o.MHG/SES hoch"))
+#####
+
+## 3) Densities erzeugen
+
+soz_wMhgN <- density(subset_sozial$sozial[subset_sozial$kategorie == "w/mhg/niedrig"], bw = 0.63)
+soz_wOmhgN <- density(subset_sozial$sozial[subset_sozial$kategorie == "w/o.mhg/niedrig"], bw = 0.63)
+soz_wMhgM <- density(subset_sozial$sozial[subset_sozial$kategorie == "w/mhg/mittel"], bw = 0.63)
+soz_wOmhgM <- density(subset_sozial$sozial[subset_sozial$kategorie == "w/o.mhg/mittel"], bw = 0.63)
+soz_wMhgH <- density(subset_sozial$sozial[subset_sozial$kategorie == "w/mhg/hoch"], bw = 0.63)
+soz_wOmhgH <- density(subset_sozial$sozial[subset_sozial$kategorie == "w/o.mhg/hoch"], bw = 0.63)
+soz_mMhgN <- density(subset_sozial$sozial[subset_sozial$kategorie == "m/mhg/niedrig"], bw = 0.63)
+soz_mOmhgN <- density(subset_sozial$sozial[subset_sozial$kategorie == "m/o.mhg/niedrig"], bw = 0.63)
+soz_mMhgM <- density(subset_sozial$sozial[subset_sozial$kategorie == "m/mhg/mittel"], bw = 0.63)
+soz_mOmhgM <- density(subset_sozial$sozial[subset_sozial$kategorie == "m/o.mhg/mittel"], bw = 0.63)
+soz_mMhgH <- density(subset_sozial$sozial[subset_sozial$kategorie == "m/mhg/hoch"], bw = 0.63)
+soz_mOmhgH <- density(subset_sozial$sozial[subset_sozial$kategorie == "m/o.mhg/hoch"], bw = 0.63)
+
+plot(soz_wMhgN, main = "Sozialleistung", 
+     xlab = NULL, ylab = "Density", xaxt = "n", col = "blue")
+axis(1, at = c(1, 11),
+     labels = c("weniger Sozialleistungen", "mehr Sozialleistungen"))
+lines(soz_mOmhgH) # + Männer ohne MHG und hohem SES
+legend(par("usr")[2] * 0.65, par("usr")[4] * 0.95, 
+       legend = c("w/mhg/niedrig", "m/o.mhg/hoch"), 
+       lty = c(1, 1, 1), 
+       col = c("blue", "black"))
+```
+
+## Positionsissue 2: Zuwanderung
+q79: Eigene Position libertär-autoritäre Dimension (Zuzug)
+(1) 1 Zuzugsmöglichkeiten für Ausländer sollten erleichtert werden
+(11) 11 Zuzugsmöglichkeiten für Ausländer sollten eingeschränkt werden
+```{r Positionsissue 2}
+## 1) Daten säubern
+dat <- dat %>%
+  mutate(zuwanderung = 
+           replace(q79, q79 < 0, NA))
+table(dat$zuwanderung, useNA = "always")
+
+## 2) Subset / Plot / ANOVA
+# a. Ein neues Subset erzeugen mit erforderlichen Variablen: geschlecht, mhg2, zuwanderung (Issue 2)
+subset_zuwanderung <- subset(dat,
+                             select = c(geschlecht, mhg, zuwanderung, kategorie)) %>%
+  filter(!is.na(zuwanderung), !is.na(kategorie))
+head(subset_zuwanderung)
+
+# b. boxplot & ANOVA
+# density plot
+densityP_zuzug <- subset_zuwanderung %>% 
+  ggplot(aes(x = zuwanderung, color = kategorie)) + 
+  geom_density(lwd = 0.6, linetype = 1, alpha = 0.5) + 
+  theme_bw() + 
+  scale_x_continuous(breaks = c(1,11), 
+                     labels = c("Zuzugsmöglichkeiten erleichtern", 
+                                "Zuzugsmöglichkeiten einschränken")) + 
+  theme(axis.text.x = element_text(vjust=0.4), 
+        axis.title.x = element_blank(), 
+        legend.title = element_blank()) + 
+  labs(y = "Density", 
+       subtitle = "Gruppeninteresse - Zuwanderung")
+densityP_zuzug # Abweichungen zwischen Gruppen
+
+# boxplot 
+boxP_zuzug <- subset_zuwanderung %>% 
+  ggplot() + 
+  aes(x = reorder(kategorie, zuwanderung), y = zuwanderung, fill = kategorie) + 
+  geom_boxplot(alpha = 0.2) + 
+  theme_bw() + 
+  scale_y_continuous(breaks = c(1,11), 
+                     labels = c("erleichtern",
+                                "einschränken")) + 
+  theme(axis.text.x = element_text(angle = 65, vjust = 0.6, size = 7),
+        axis.text.y = element_text(vjust = 0.6, size = 7),
+        axis.title.x = element_blank(), 
+        legend.title = element_blank(), 
+        legend.text = element_text(vjust = 0.6, size = 7)) + 
+  labs(y = "Zuzugsmöglichkeiten", 
+       subtitle = "Gruppeninteresse - Zuwanderung")
+boxP_zuzug
+
+# ANOVA: difference in means of the groups at each level of the independent variable?
+anova2 <- aov(zuwanderung ~ kategorie, data = subset_zuwanderung)
+summary(anova2) 
+# The p value of the category variable is very low, so it appears that the type of categories used has a real impact on the issue position.
+
+## 3) Densities erzeugen
+zuzug_wMhgN <- density(subset_zuwanderung$zuwanderung
+                       [subset_zuwanderung$kategorie == "w/mhg/niedrig"], bw = 0.63)
+zuzug_wOmhgN <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "w/o.mhg/niedrig"], bw = 0.63)
+zuzug_wMhgM <- density(subset_zuwanderung$zuwanderung
+                       [subset_zuwanderung$kategorie == "w/mhg/mittel"], bw = 0.63)
+zuzug_wOmhgM <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "w/o.mhg/mittel"], bw = 0.63)
+zuzug_wMhgH <- density(subset_zuwanderung$zuwanderung
+                       [subset_zuwanderung$kategorie == "w/mhg/hoch"], bw = 0.63)
+zuzug_wOmhgH <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "w/o.mhg/hoch"], bw = 0.63)
+zuzug_mMhgN <- density(subset_zuwanderung$zuwanderung
+                       [subset_zuwanderung$kategorie == "m/mhg/niedrig"], bw = 0.63)
+zuzug_mOmhgN <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "m/o.mhg/niedrig"], bw = 0.63)
+zuzugz_mMhgM <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "m/mhg/mittel"], bw = 0.63)
+zuzug_mOmhgM <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "m/o.mhg/mittel"], bw = 0.63)
+zuzug_mMhgH <- density(subset_zuwanderung$zuwanderung
+                       [subset_zuwanderung$kategorie == "m/mhg/hoch"], bw = 0.63)
+zuzug_mOmhgH <- density(subset_zuwanderung$zuwanderung
+                        [subset_zuwanderung$kategorie == "m/o.mhg/hoch"], bw = 0.63)
+
+# extract x-ranges and y-ranges
+xlims <- range(c(zuzug_wMhgN$x, zuzug_mOmhgH$x))
+ylims <- range(c(zuzug_wMhgN$y, zuzug_mOmhgH$y))
+
+# plot
+plot(zuzug_wMhgN, main = "Zuwanderung", 
+     xlim = xlims, ylim = ylims,
+     xlab = NULL, ylab = "Density", xaxt = "n", col = "blue")
+axis(1, at = c(1, 11),
+     labels = c("Zuzugsmöglichkeiten erleichtern", "Zuzugsmöglichkeiten einschränken"))
+lines(zuzug_mOmhgH) # + Männer ohne MHG und hohem SES
+legend(par("usr")[2] * 0.65, par("usr")[4] * 0.95, 
+       legend = c("w/mhg/niedrig", "m/o.mhg/hoch"), 
+       lty = c(1, 1, 1), 
+       col = c("blue", "black"))
+```
+
+## Positionsissue 3: Klimawandel
+q80: Eigene Position Klimawandel
+(1) 1 Vorrang für Bekämpfung des Klimawandels, auch wenn es dem Wirtschaftswachstum schadet
+(11) 11 Vorrang für Wirtschaftswachstum, auch wenn es die Bekämpfung des Klimawandels erschwert
+```{r Positionsissue 3}
+## 1) Daten säubern
+dat <- dat %>%
+  mutate(umwelt = 
+           replace(q80, q80 < 0, NA))
+table(dat$umwelt, useNA = "always")
+
+## 2) Subset / Plot / ANOVA
+# a. Ein neues Subset erzeugen mit erforderlichen Variablen: geschlecht, mhg2, zuwanderung (Issue 2)
+subset_umwelt <- subset(dat,
+                        select = c(geschlecht, mhg, umwelt, kategorie)) %>%
+  filter(!is.na(umwelt), !is.na(kategorie))
+head(subset_umwelt)
+
+# b. boxplot & ANOVA
+# density plot
+densityP_umwelt <- subset_umwelt %>% 
+  ggplot(aes(x = umwelt, color = kategorie)) + 
+  geom_density(lwd = 0.6, linetype = 1, alpha = 0.5) + 
+  theme_bw() + 
+  scale_x_continuous(breaks = c(1,11), 
+                     labels = c("Bekämpfung des Klimawandels", 
+                                "Wirtschaftswachstum")) + 
+  theme(axis.text.x = element_text(vjust=0.4), 
+        axis.title.x = element_blank(), 
+        legend.title = element_blank()) + 
+  labs(y = "Density", 
+       subtitle = "Gruppeninteresse - Umwelt")
+densityP_umwelt # Abweichungen zwischen Gruppen
+
+# boxplot 
+boxP_umwelt <- subset_umwelt %>% 
+  ggplot() + 
+  aes(x = reorder(kategorie, umwelt), y = umwelt, fill = kategorie) + 
+  geom_boxplot(alpha = 0.2) + 
+  theme_bw() + 
+  scale_y_continuous(breaks = c(1,11), 
+                     labels = c("Bekämpfung des Klimawandels",
+                                "Wirtschaftswachstum")) + 
+  theme(axis.text.x = element_text(angle = 65, vjust = 0.6, size = 7),
+        axis.text.y = element_text(vjust = 0.6, size = 7),
+        axis.title.x = element_blank(), 
+        legend.title = element_blank(), 
+        legend.text = element_text(vjust = 0.6, size = 7)) + 
+  labs(y = "Vorrang", 
+       subtitle = "Gruppeninteresse - Umwelt")
+boxP_umwelt
+
+# ANOVA: difference in means of the groups at each level of the independent variable?
+anova2 <- aov(zuwanderung ~ kategorie, data = subset_zuwanderung)
+summary(anova2) 
+# The p value of the category variable is very low, so it appears that the type of categories used has a real impact on the issue position.
+
+## 3) Densities erzeugen
+umwelt_wMhgN <- density(subset_umwelt$umwelt
+                       [subset_umwelt$kategorie == "w/mhg/niedrig"], bw = 0.63)
+umwelt_wOmhgN <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "w/o.mhg/niedrig"], bw = 0.63)
+umwelt_wMhgM <- density(subset_umwelt$umwelt
+                       [subset_umwelt$kategorie == "w/mhg/mittel"], bw = 0.63)
+umwelt_wOmhgM <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "w/o.mhg/mittel"], bw = 0.63)
+umwelt_wMhgH <- density(subset_umwelt$umwelt
+                       [subset_umwelt$kategorie == "w/mhg/hoch"], bw = 0.63)
+umwelt_wOmhgH <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "w/o.mhg/hoch"], bw = 0.63)
+umwelt_mMhgN <- density(subset_umwelt$umwelt
+                       [subset_umwelt$kategorie == "m/mhg/niedrig"], bw = 0.63)
+umwelt_mOmhgN <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "m/o.mhg/niedrig"], bw = 0.63)
+umwelt_mMhgM <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "m/mhg/mittel"], bw = 0.63)
+umwelt_mOmhgM <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "m/o.mhg/mittel"], bw = 0.63)
+umwelt_mMhgH <- density(subset_umwelt$umwelt
+                       [subset_umwelt$kategorie == "m/mhg/hoch"], bw = 0.63)
+umwelt_mOmhgH <- density(subset_umwelt$umwelt
+                        [subset_umwelt$kategorie == "m/o.mhg/hoch"], bw = 0.63)
+
+# extract x-ranges and y-ranges
+xlims <- range(c(umwelt_wMhgN$x, umwelt_mOmhgH$x))
+ylims <- range(c(umwelt_wMhgN$y, umwelt_mOmhgH$y))
+
+# plot
+plot(umwelt_wMhgN, main = "Umwelt", 
+     xlim = xlims, ylim = ylims,
+     xlab = NULL, ylab = "Density", xaxt = "n", col = "blue")
+axis(1, at = c(1, 11),
+     labels = c("Bekämpfung des Klimawandels", "Wirtschaftswachstum"))
+lines(umwelt_mOmhgH) # + Männer ohne MHG und hohem SES
+legend(par("usr")[2] * 0.65, par("usr")[4] * 0.95, 
+       legend = c("w/mhg/niedrig", "m/o.mhg/hoch"), 
+       lty = c(1, 1, 1), 
+       col = c("blue", "black"))
+```
+
+
+
+
+
+
+
+
+
+
+
