@@ -80,27 +80,3 @@ write_csv2(sub2021_nrw, path = "sub2021_nrw.csv")
 write_csv2(sub2021_nrw_all, path = "sub2021_nrw_all.csv")
 write_csv2(sub2021_cdu, path = "sub2021_cdu.csv")
 ```
-
-```{}
-
-```
-
-```{}
-
-```
-
-```{}
-
-```
-
-```{}
-
-```
-
-```{}
-
-```
-
-```{}
-
-```
