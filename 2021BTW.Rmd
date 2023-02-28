@@ -1,0 +1,106 @@
+---
+title: "BTW 2021"
+author: "Hyeseung Suh"
+date: "2022-09-28"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(haven)
+library(ggthemes)
+setwd("/Users/suhhyeseung/Documents/Research/2021BTW")
+btw2021 <- read.csv2("btw21_gewaehlte.csv")
+
+```
+
+```{r Variablen säubern}
+# Benötigte Merkmale: Partei, Doppel kandidiert oder nicht, Wahlgebiet, Listenplatz, Name, Vorname, Geschlecht
+
+# Name
+btw2021$Name_voll <- paste(btw2021$Vornamen, btw2021$Nachname)
+
+# Partei
+btw2021$Partei <- as.factor(btw2021$Gruppenname)
+
+# Doppelkandidatur: in Wahlkreisen gewählt -> Dann werden weitere Personen auf der Liste nach vorne gerutscht.
+btw2021$doppelkandidiert <- factor(btw2021$VerknKennzeichen, 
+                                   levels = c("Kreiswahlvorschlag", "Landesliste"),
+                                   labels = c("1", "2"))
+table(btw2021$doppelkandidiert, useNA = "always")
+btw2021$doppelkandidiert[is.na(btw2021$doppelkandidiert)] <- 0
+btw2021$doppelkandidiert <- as.numeric(btw2021$doppelkandidiert)
+btw2021$doppel <- ifelse(btw2021$doppelkandidiert >= 1, "Ja", "Nein")
+table(btw2021$doppel, useNA = "always")
+
+# Geschlecht
+btw2021$Geschlecht <- factor(btw2021$Geschlecht, 
+                             levels = c("w", "m"), 
+                             labels = c("weiblich", "männlich"))
+# Mandatsart
+btw2021$Stimmenart <- factor(btw2021$Kennzeichen, 
+                             levels = c("Kreiswahlvorschlag", "Landesliste"), 
+                             labels = c("Direktmandat", "Listenmandat"))
+# Listenplatz
+btw2021$Listenplatz
+
+# Wahlgebiet
+btw2021$BL <- as.factor(btw2021$GebietLandAbk)
+```
+
+
+```{r subsetting data}
+sub2021 <- subset(btw2021, select = c(Partei, BL, Stimmenart, Listenplatz, doppel, Name_voll, Geschlecht, VerknListenplatz))
+head(sub2021)
+
+# NRW CDU
+sub2021_nrw <- subset(sub2021, subset = BL == "NW" & Stimmenart == "Listenmandat" & Partei == "CDU")
+sub2021_nrw
+
+sub2021_nrw_all <- subset(sub2021, subset = BL == "NW"  & Partei == "CDU" & (VerknListenplatz <= 22 | Listenplatz <= 22))
+sub2021_nrw_all
+
+# Alle CDU
+sub2021_cdu <- subset(sub2021, subset = Partei == "CDU" & (VerknListenplatz <= 22 | Listenplatz <= 22))
+sub2021_cdu
+
+# Alle Listenmandate nach Geschlecht
+sub2021_list_m <- subset(sub2021, subset = Stimmenart == "Listenmandat" & Geschlecht == "männlich")
+sub2021_list_w <- subset(sub2021, subset = Stimmenart == "Listenmandat" & Geschlecht == "weiblich")
+
+# export als csv
+write_csv2(sub2021, path = "sub2021.csv")
+write_csv2(sub2021_nrw, path = "sub2021_nrw.csv")
+write_csv2(sub2021_nrw_all, path = "sub2021_nrw_all.csv")
+write_csv2(sub2021_cdu, path = "sub2021_cdu.csv")
+```
+
+```{}
+
+```
+
+```{}
+
+```
+
+```{}
+
+```
+
+```{}
+
+```
+
+```{}
+
+```
+
+```{}
+
+```
